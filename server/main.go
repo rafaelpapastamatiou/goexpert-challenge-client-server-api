@@ -50,6 +50,8 @@ func (DbQuotation) TableName() string {
 }
 
 func main() {
+	ConnectToDb()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cotacao", HandleQuotation)
 	http.ListenAndServe(":8080", mux)
@@ -58,7 +60,7 @@ func main() {
 func HandleQuotation(w http.ResponseWriter, r *http.Request) {
 	// HTTP CONTEXT
 	httpCtx := context.Background()
-	httpCtx, httpCtxCancel := context.WithTimeout(httpCtx, 5*time.Millisecond)
+	httpCtx, httpCtxCancel := context.WithTimeout(httpCtx, 2000*time.Millisecond)
 	defer httpCtxCancel()
 
 	quotation, err := SearchQuotation(httpCtx)
@@ -91,6 +93,7 @@ func HandleQuotation(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(&QuotationResponse{Bid: quotation.Bid})
 }
 
+// SEND THE REQUEST TO THE EXTERNAL API
 func SearchQuotation(ctx context.Context) (*Quotation, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://economia.awesomeapi.com.br/json/last/USD-BRL", nil)
 	if err != nil {
@@ -119,13 +122,9 @@ func SearchQuotation(ctx context.Context) (*Quotation, error) {
 	return &quotationResponse.USDBRL, nil
 }
 
+// SAVE THE QUOTATION IN THE DATABASE
 func SaveQuotation(ctx context.Context, quotation *DbQuotation) error {
-	db, err := ConnectToDabase()
-	if err != nil {
-		return err
-	}
-
-	err = db.WithContext(ctx).Create(&quotation).Error
+	err := db.WithContext(ctx).Create(&quotation).Error
 	if err != nil {
 		return err
 	}
@@ -133,14 +132,16 @@ func SaveQuotation(ctx context.Context, quotation *DbQuotation) error {
 	return nil
 }
 
-func ConnectToDabase() (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open("server.db"), &gorm.Config{})
+// GORM DB CONNECTION
+var db *gorm.DB // CREATE A GLOBAL VAR TO HOLD GORM.DB
 
+func ConnectToDb() {
+	var err error
+
+	db, err = gorm.Open(sqlite.Open("server.db"), &gorm.Config{})
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	db.AutoMigrate(&DbQuotation{})
-
-	return db, nil
 }
