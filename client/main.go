@@ -59,6 +59,8 @@ func main() {
 		panic(err)
 	}
 
+	defer file.Close()
+
 	resultString := fmt.Sprintf("Dólar: %v", quotation.Bid)
 
 	_, err = file.WriteString(resultString)
