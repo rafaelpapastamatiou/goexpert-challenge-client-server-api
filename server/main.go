@@ -58,43 +58,61 @@ func main() {
 }
 
 func HandleQuotation(w http.ResponseWriter, r *http.Request) {
-	// HTTP CONTEXT
-	httpCtx := context.Background()
-	httpCtx, httpCtxCancel := context.WithTimeout(httpCtx, 2000*time.Millisecond)
-	defer httpCtxCancel()
+	// CURRENT REQUEST CONTEXT
+	ctx := r.Context()
 
-	quotation, err := SearchQuotation(httpCtx)
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
-		println("External API timeout")
-		w.WriteHeader(http.StatusRequestTimeout)
+	errChan := make(chan error)
+	quotationChan := make(chan *Quotation)
+
+	go SearchAndSaveQuotation(ctx, quotationChan, errChan)
+
+	select {
+	case <-ctx.Done():
+		println("Request cancelled by the client")
+		return
+
+	case err := <-errChan:
+		if errors.Is(err, context.DeadlineExceeded) {
+			w.WriteHeader(http.StatusRequestTimeout)
+			return
+		}
+
+		panic(err)
+
+	case quotation := <-quotationChan:
+		// WRITE RESPONSE
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(&QuotationResponse{Bid: quotation.Bid})
+	}
+}
+
+func SearchAndSaveQuotation(ctx context.Context, quotationChan chan *Quotation, errChan chan error) {
+	quotation, err := SearchQuotation(ctx)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			println("API context timeout")
+		}
+		errChan <- err
 		return
 	}
+
+	err = SaveQuotation(ctx, quotation)
 	if err != nil {
-		panic(err)
-	}
-
-	// SQL CONTEXT
-	sqlCtx := context.Background()
-	sqlCtx, sqlCtxCancel := context.WithTimeout(sqlCtx, 100*time.Millisecond)
-	defer sqlCtxCancel()
-
-	err = SaveQuotation(sqlCtx, &DbQuotation{Quotation: *quotation})
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
-		println("Database timeout")
-		w.WriteHeader(http.StatusRequestTimeout)
+		if errors.Is(err, context.DeadlineExceeded) {
+			println("SQL context timeout")
+		}
+		errChan <- err
 		return
 	}
-	if err != nil {
-		panic(err)
-	}
 
-	// WRITE RESPONSE
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(&QuotationResponse{Bid: quotation.Bid})
+	quotationChan <- quotation
 }
 
 // SEND THE REQUEST TO THE EXTERNAL API
 func SearchQuotation(ctx context.Context) (*Quotation, error) {
+	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://economia.awesomeapi.com.br/json/last/USD-BRL", nil)
 	if err != nil {
 		return nil, err
@@ -123,8 +141,11 @@ func SearchQuotation(ctx context.Context) (*Quotation, error) {
 }
 
 // SAVE THE QUOTATION IN THE DATABASE
-func SaveQuotation(ctx context.Context, quotation *DbQuotation) error {
-	err := db.WithContext(ctx).Create(&quotation).Error
+func SaveQuotation(ctx context.Context, quotation *Quotation) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+
+	err := db.WithContext(ctx).Create(&DbQuotation{Quotation: *quotation}).Error
 	if err != nil {
 		return err
 	}
