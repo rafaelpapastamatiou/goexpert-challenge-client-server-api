@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -57,10 +58,15 @@ func main() {
 func HandleQuotation(w http.ResponseWriter, r *http.Request) {
 	// HTTP CONTEXT
 	httpCtx := context.Background()
-	httpCtx, httpCtxCancel := context.WithTimeout(httpCtx, 2000*time.Millisecond)
+	httpCtx, httpCtxCancel := context.WithTimeout(httpCtx, 5*time.Millisecond)
 	defer httpCtxCancel()
 
 	quotation, err := SearchQuotation(httpCtx)
+	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+		println("External API timeout")
+		w.WriteHeader(http.StatusRequestTimeout)
+		return
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -71,6 +77,11 @@ func HandleQuotation(w http.ResponseWriter, r *http.Request) {
 	defer sqlCtxCancel()
 
 	err = SaveQuotation(sqlCtx, &DbQuotation{Quotation: *quotation})
+	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+		println("Database timeout")
+		w.WriteHeader(http.StatusRequestTimeout)
+		return
+	}
 	if err != nil {
 		panic(err)
 	}
