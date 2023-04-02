@@ -12,8 +12,13 @@ import (
 )
 
 // Format of the quotation in the external api
-type QuotationResponse struct {
+type ExternalQuotationResponse struct {
 	USDBRL Quotation
+}
+
+// Format of the response
+type QuotationResponse struct {
+	Bid string `json:"bid"`
 }
 
 // Internal quotation struct
@@ -72,7 +77,7 @@ func HandleQuotation(w http.ResponseWriter, r *http.Request) {
 
 	// WRITE RESPONSE
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(quotation)
+	json.NewEncoder(w).Encode(&QuotationResponse{Bid: quotation.Bid})
 }
 
 func SearchQuotation(ctx context.Context) (*Quotation, error) {
@@ -93,7 +98,7 @@ func SearchQuotation(ctx context.Context) (*Quotation, error) {
 		return nil, err
 	}
 
-	var quotationResponse QuotationResponse
+	var quotationResponse ExternalQuotationResponse
 
 	err = json.Unmarshal(body, &quotationResponse)
 	if err != nil {
